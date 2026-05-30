@@ -48,7 +48,7 @@ class JSPurePythonClassifier {
       let logProb = Math.log(prior);
 
       const wordCountsInClass = this.wordCounts[label] || {};
-      
+
       // Sum the counts of all words in this class
       const totalWordsInClass = Object.values(wordCountsInClass).reduce((sum, val) => sum + val, 0);
       const vocabSize = this.vocab.size;
@@ -142,8 +142,8 @@ const getLevenshteinDistance = (a, b) => {
 };
 
 const POPULAR_BRANDS = [
-  'paypal', 'amazon', 'netflix', 'google', 'microsoft', 
-  'apple', 'chase', 'chasebank', 'wellsfargo', 'facebook', 
+  'paypal', 'amazon', 'netflix', 'google', 'microsoft',
+  'apple', 'chase', 'chasebank', 'wellsfargo', 'facebook',
   'instagram', 'twitter', 'linkedin', 'dhl', 'fedex', 'ups'
 ];
 
@@ -160,7 +160,7 @@ export const aiService = {
       try {
         // Clean URL punctuation at the end (e.g. dots, commas, parentheses)
         const cleanUrl = url.replace(/[.,;!?()]$/, '');
-        
+
         // Extract host/domain
         let host = '';
         if (cleanUrl.toLowerCase().startsWith('http://') || cleanUrl.toLowerCase().startsWith('https://')) {
@@ -175,20 +175,20 @@ export const aiService = {
             host = domainMatch[1].toLowerCase();
           }
         }
-        
+
         // Remove 'www.' prefix if present
         if (host.startsWith('www.')) {
           host = host.substring(4);
         }
-        
+
         if (!host) return;
-        
+
         // Format for detected urls list to make it look clean
         const displayUrl = cleanUrl.toLowerCase().startsWith('http') ? cleanUrl : `http://${cleanUrl}`;
         if (!detectedUrls.includes(displayUrl)) {
           detectedUrls.push(displayUrl);
         }
-        
+
         const parts = host.split('.');
         if (parts.length < 2) return;
 
@@ -225,30 +225,70 @@ export const aiService = {
     return { spoofAlerts, detectedUrls };
   },
 
+  // Google Safe Browsing API v4 Integration
+  async checkSafeBrowsing(detectedUrls) {
+    const apiKey = process.env.SAFE_BROWSING_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey || detectedUrls.length === 0) {
+      return [];
+    }
+
+    try {
+      const url = `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client: {
+            clientId: "scamshield-ai",
+            clientVersion: "1.0.0"
+          },
+          threatInfo: {
+            threatTypes:      ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
+            platformTypes:    ["ANY_PLATFORM"],
+            threatEntryTypes: ["URL"],
+            threatEntries: detectedUrls.map(u => ({ url: u }))
+          }
+        })
+      });
+
+      const data = await response.json();
+      const threatAlerts = [];
+      if (data.matches && data.matches.length > 0) {
+        data.matches.forEach(match => {
+          threatAlerts.push(`Google Safe Browsing: The URL '${match.threat.url}' is flagged as a high-risk ${match.threatType.replace(/_/g, ' ')} threat!`);
+        });
+      }
+      return threatAlerts;
+    } catch (err) {
+      console.warn('[SAFE BROWSING API] Connection failed or key unauthorized, using local algorithm fallback.', err.message);
+      return [];
+    }
+  },
+
   // Layer 2: Fast local heuristic keywords scan
   heuristicKeywordScan(text) {
     const textLower = text.toLowerCase();
-    
+
     // Categorized indicators to prevent urgency words alone from escalating risk
     const urgencyIndicators = [
-      'urgent', 'immediately', 'within 24 hours', 'action required', 'suspended', 
+      'urgent', 'immediately', 'within 24 hours', 'action required', 'suspended',
       'locked', 'unauthorized transaction', 'blocked', 'expire', 'compromised',
       'tomorrow', 'deadline', 'submit', 'apply', 'closing soon', 'reminder', 'closing tomorrow'
     ];
     const financialIndicators = [
-      'lottery', 'won $', 'cash prize', 'bitcoin deposit', 'double your money', 
+      'lottery', 'won $', 'cash prize', 'bitcoin deposit', 'double your money',
       'claim refund', 'irs refund', 'free gift card', 'investment scheme', 'matching bonus',
       'earn $', 'salary', 'onboarding fee', 'redelivery fee', 'transfer of $', 'payment method',
       'bank details', 'credit card details', 'payment request', 'transfer funds', 'upi account'
     ];
     const securityIndicators = [
-      'otp', 'verification code', 'security code', 'verify your details', 
+      'otp', 'verification code', 'security code', 'verify your details',
       'login at', 'confirm your password', 'social security number', 'ssn', 'verify identity',
       'confirm identity', 'reset password', 'account security', 'security details'
     ];
     const trustIndicators = [
-      'google', 'microsoft', 'apple', 'cloud', 'academy', 'developer program', 
-      'documentation', 'conference', 'event reminder', 'official', 'edition', 
+      'google', 'microsoft', 'apple', 'cloud', 'academy', 'developer program',
+      'documentation', 'conference', 'event reminder', 'official', 'edition',
       'submission window', 'codelab', 'announcement', 'training', 'workshop', 'webinar', 'apac'
     ];
 
@@ -282,7 +322,7 @@ export const aiService = {
         console.error('[AI SERVICE] JS classifier failed, falling back to Python:', err);
       }
     }
-    
+
     console.log('[AI SERVICE] JS classifier unavailable. Spawning Python child process...');
     return this.runPythonClassifier(text);
   },
@@ -337,17 +377,26 @@ export const aiService = {
       throw new Error('Input text cannot be empty.');
     }
 
-    // 1. Run URL analysis
+    // 1. Run URL analysis (local typosquatting engine)
     const { spoofAlerts, detectedUrls } = this.detectBrandSpoofing(text);
 
-    // 2. Run Heuristic analysis
+    // 2. Query Google Safe Browsing API if URLs are detected and API key is present
+    let safeBrowsingAlerts = [];
+    if (detectedUrls.length > 0) {
+      safeBrowsingAlerts = await this.checkSafeBrowsing(detectedUrls);
+    }
+
+    // Merge results: Use Safe Browsing alerts if matched; otherwise fall back to local spoofAlerts
+    const finalSpoofAlerts = safeBrowsingAlerts.length > 0 ? safeBrowsingAlerts : spoofAlerts;
+
+    // 3. Run Heuristic analysis
     const { urgencyMatched, financialMatched, securityMatched, trustMatched } = this.heuristicKeywordScan(text);
 
-    // 3. Run high-performance NLP machine learning scan
+    // 4. Run high-performance NLP machine learning scan
     const pyResult = await this.runClassifier(text);
 
-    // 4. Merge results to form the final score and risk assessment
-    const hasSuspiciousUrl = spoofAlerts.length > 0;
+    // 5. Merge results to form the final score and risk assessment
+    const hasSuspiciousUrl = finalSpoofAlerts.length > 0;
     const hasUrgency = urgencyMatched.length > 0;
     const hasFinancial = financialMatched.length > 0;
     const hasSecurity = securityMatched.length > 0;
@@ -356,26 +405,32 @@ export const aiService = {
     let finalRiskLevel = pyResult.riskLevel;
     let finalConfidence = pyResult.confidenceScore; // value between 0 and 1
 
-    const hasPhishingURL = hasSuspiciousUrl;
-    const hasDirectHarvesting = hasSecurity || (hasFinancial && financialMatched.some(f => f.includes('account') || f.includes('card') || f.includes('onboarding fee')));
-    const hasCombinedUrgencyScam = hasUrgency && (hasFinancial || hasSecurity || hasSuspiciousUrl);
+    const textLower = text.toLowerCase();
+    
+    // Core Risk Criteria
+    const hasMoney = hasFinancial || textLower.includes('money') || textLower.includes('cash') || textLower.includes('prize') || textLower.includes('$');
+    const hasOTP = textLower.includes('otp') || securityMatched.some(s => s.includes('otp') || s.includes('code') || s.includes('pin') || s.includes('verification'));
+    const hasBankDetails = textLower.includes('bank') || textLower.includes('account') || textLower.includes('card') || textLower.includes('credit') || textLower.includes('debit') || textLower.includes('routing') || financialMatched.some(f => f.includes('account') || f.includes('card'));
+    const hasSuspiciousURL = hasSuspiciousUrl;
+
+    // Combined Risk Calculation Rules: Urgency + (Money / OTP / Bank details / Suspicious URL)
+    const isHighRiskScam = hasUrgency && (hasMoney || hasOTP || hasBankDetails || hasSuspiciousURL);
+    const isSuspiciousScam = !isHighRiskScam && (hasSuspiciousURL || hasMoney);
 
     // Classification Decision Core
-    if (hasPhishingURL || hasDirectHarvesting || hasCombinedUrgencyScam) {
+    if (isHighRiskScam) {
       finalRiskLevel = 'high-risk';
       finalConfidence = Math.max(finalConfidence, 0.95);
-    } else if (hasFinancial) {
+    } else if (isSuspiciousScam) {
       finalRiskLevel = 'suspicious';
       finalConfidence = Math.max(finalConfidence, 0.75);
     } else {
-      // Urgency alone does not escalate. Overriding trust signals for safe program context
-      if (hasTrust || (!hasPhishingURL && !hasDirectHarvesting && !hasFinancial)) {
-        finalRiskLevel = 'safe';
-        finalConfidence = Math.max(finalConfidence, 0.85); // 80%+ confidence for safe messages
-      }
+      // Defaults to safe if combinations are not met
+      finalRiskLevel = 'safe';
+      finalConfidence = Math.max(finalConfidence, 0.85); // 85% confidence for safe messages
     }
 
-    // 5. Update result explanations (checklists)
+    // 6. Update result explanations (checklists)
     let explanations = [];
     if (finalRiskLevel === 'safe') {
       explanations = [
@@ -385,7 +440,7 @@ export const aiService = {
         `✓ ${hasSecurity ? 'Potential credential harvesting indicators' : 'No credential theft indicators detected'}`
       ];
     } else {
-      explanations = [...spoofAlerts];
+      explanations = [...finalSpoofAlerts];
       if (hasFinancial) {
         explanations.push('Mentions payment requests, financial rewards, or money schemes.');
       }
@@ -402,7 +457,7 @@ export const aiService = {
 
     // 6. Build Detected Signals Section
     const detectedSignals = [];
-    
+
     // Add trust signals
     if (hasTrust) {
       if (trustMatched.some(t => ['academy', 'codelab', 'training', 'workshop', 'webinar', 'program'].includes(t))) {
@@ -415,9 +470,9 @@ export const aiService = {
         detectedSignals.push('✓ Event reminder detected');
       }
     }
-    
+
     // Add threat signals
-    if (!hasPhishingURL) {
+    if (!hasSuspiciousUrl) {
       detectedSignals.push('✓ No phishing indicators');
     } else {
       detectedSignals.push('⚠ Phishing indicator detected');
@@ -435,7 +490,7 @@ export const aiService = {
       detectedSignals.push('⚠ Account security/verification requested');
     }
 
-    if (hasUrgency && !hasPhishingURL && !hasDirectHarvesting && !hasFinancial) {
+    if (hasUrgency && !hasSuspiciousUrl && !hasSecurity && !hasFinancial) {
       detectedSignals.push('✓ Urgency word used in benign context');
     }
 

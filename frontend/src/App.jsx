@@ -210,7 +210,7 @@ export default function App() {
         body: JSON.stringify({ text: scanText })
       });
       const data = await res.json();
-      
+
       if (loaderTimerRef.current) clearTimeout(loaderTimerRef.current);
       if (data.success) {
         setScanResult(data.data);
@@ -857,7 +857,7 @@ export default function App() {
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-start space-x-3 text-sm text-emerald-400 animate-pulse">
                   <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold">Threat Alert Published!</p>
+                    <p className="font-bold"> Scam Report Submitted Successfully!</p>
                     <p className="text-xs text-emerald-500/80">Thank you for helping protect the community. Your report has been submitted successfully.</p>
                   </div>
                 </div>
@@ -942,7 +942,7 @@ export default function App() {
                   ) : (
                     <>
                       <ShieldAlert className="h-4.5 w-4.5 text-white" />
-                      <span>Publish Threat Alert</span>
+                      <span>Submit Threat Alert</span>
                     </>
                   )}
                 </button>
