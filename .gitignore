@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Production build outputs
+dist/
+frontend/dist/
+dist-ssr/
+*.local
+
+# Environment variables
+.env
+backend/.env
+frontend/.env
+
+# Local DB Data
+backend/data/quizzes.json
+backend/data/scam_reports.json
+backend/data/scan_history.json
+backend/data/users.json
+
+# IDEs and Editors
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
