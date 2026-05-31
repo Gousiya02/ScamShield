@@ -1,3 +1,5 @@
+#Live Demo - https://scamshield-kappa.vercel.app/
+
 # 🛡️ ScamShield AI — Anti-Scam Verification Platform
 
 An AI-powered web application that detects scams, phishing links, and fraudulent messages in real time.
