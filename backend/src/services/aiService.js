@@ -425,9 +425,14 @@ export const aiService = {
       finalRiskLevel = 'suspicious';
       finalConfidence = Math.max(finalConfidence, 0.75);
     } else {
-      // Defaults to safe if combinations are not met
-      finalRiskLevel = 'safe';
-      finalConfidence = Math.max(finalConfidence, 0.85); // 85% confidence for safe messages
+      // Fall back to the ML classifier's prediction (pyResult.riskLevel)
+      // and only default to 'safe' if no prediction is present
+      if (!finalRiskLevel) {
+        finalRiskLevel = 'safe';
+      }
+      if (finalRiskLevel === 'safe') {
+        finalConfidence = Math.max(finalConfidence, 0.85); // 85% confidence for safe messages
+      }
     }
 
     // 6. Update result explanations (checklists)
